@@ -1,5 +1,5 @@
 import { initializeApp } from 'firebase/app';
-import { initializeFirestore } from 'firebase/firestore';
+import { getFirestore } from 'firebase/firestore';
 import firebaseConfigJson from '../firebase-applet-config.json';
 
 // Initialize Firebase using values from config JSON
@@ -15,4 +15,7 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 
 // Initialize Firestore targeting the specific databaseId if provided
-export const db = initializeFirestore(app, {}, firebaseConfigJson.firestoreDatabaseId || '(default)');
+const dbId = firebaseConfigJson.firestoreDatabaseId;
+export const db = dbId && dbId !== '(default)'
+  ? getFirestore(app, dbId)
+  : getFirestore(app);

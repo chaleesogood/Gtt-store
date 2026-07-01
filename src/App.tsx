@@ -6,7 +6,7 @@ import DashboardView from './components/DashboardView';
 import ProductListView from './components/ProductListView';
 import CategoryView from './components/CategoryView';
 import ActivityLogView from './components/ActivityLogView';
-import SimulationView from './components/SimulationView';
+
 import { LayoutDashboard, Package, Layers, History, Play, Bell, Menu, X, CheckCircle, AlertTriangle } from 'lucide-react';
 import { collection, doc, setDoc, updateDoc, deleteDoc, onSnapshot, query, orderBy, writeBatch, getDocs } from 'firebase/firestore';
 import { db } from './firebase';
@@ -34,13 +34,21 @@ export default function App() {
       if (list.length === 0) {
         // Seeding initial products
         INITIAL_PRODUCTS.forEach((prod) => {
-          setDoc(doc(db, 'products', prod.id), prod);
+          setDoc(doc(db, 'products', prod.id), prod).catch((err) => console.error("Seeding error:", err));
         });
+        setProducts(INITIAL_PRODUCTS);
+        localStorage.setItem('stock_manager_products', JSON.stringify(INITIAL_PRODUCTS));
       } else {
         // Sort by name or date if needed, let's preserve order by title/name
         list.sort((a, b) => a.name.localeCompare(b.name));
         setProducts(list);
+        localStorage.setItem('stock_manager_products', JSON.stringify(list));
       }
+    }, (error) => {
+      console.error("Firestore products sync error:", error);
+      addToast('warning', 'เกิดข้อผิดพลาดในการเชื่อมต่อคลังสินค้า (Firestore)', `สลับไปใช้คลังสำรองในเบราว์เซอร์: ${error.message}`);
+      const saved = localStorage.getItem('stock_manager_products');
+      setProducts(saved ? JSON.parse(saved) : INITIAL_PRODUCTS);
     });
     return () => unsubscribe();
   }, []);
@@ -56,11 +64,19 @@ export default function App() {
       if (list.length === 0) {
         // Seeding initial categories
         INITIAL_CATEGORIES.forEach((cat) => {
-          setDoc(doc(db, 'categories', cat.id), cat);
+          setDoc(doc(db, 'categories', cat.id), cat).catch((err) => console.error("Seeding error:", err));
         });
+        setCategories(INITIAL_CATEGORIES);
+        localStorage.setItem('stock_manager_categories', JSON.stringify(INITIAL_CATEGORIES));
       } else {
         setCategories(list);
+        localStorage.setItem('stock_manager_categories', JSON.stringify(list));
       }
+    }, (error) => {
+      console.error("Firestore categories sync error:", error);
+      addToast('warning', 'เกิดข้อผิดพลาดในการเชื่อมต่อคลังกลุ่มสินค้า (Firestore)', `สลับไปใช้คลังกลุ่มสำรองในเบราว์เซอร์: ${error.message}`);
+      const saved = localStorage.getItem('stock_manager_categories');
+      setCategories(saved ? JSON.parse(saved) : INITIAL_CATEGORIES);
     });
     return () => unsubscribe();
   }, []);
@@ -76,11 +92,19 @@ export default function App() {
       if (list.length === 0) {
         // Seeding initial activities
         INITIAL_ACTIVITIES.forEach((act) => {
-          setDoc(doc(db, 'activities', act.id), act);
+          setDoc(doc(db, 'activities', act.id), act).catch((err) => console.error("Seeding error:", err));
         });
+        setActivities(INITIAL_ACTIVITIES);
+        localStorage.setItem('stock_manager_activities', JSON.stringify(INITIAL_ACTIVITIES));
       } else {
         setActivities(list);
+        localStorage.setItem('stock_manager_activities', JSON.stringify(list));
       }
+    }, (error) => {
+      console.error("Firestore activities sync error:", error);
+      addToast('warning', 'เกิดข้อผิดพลาดในการเชื่อมต่อประวัติการทำงาน (Firestore)', `สลับไปใช้ประวัติสำรองในเบราว์เซอร์: ${error.message}`);
+      const saved = localStorage.getItem('stock_manager_activities');
+      setActivities(saved ? JSON.parse(saved) : INITIAL_ACTIVITIES);
     });
     return () => unsubscribe();
   }, []);
@@ -274,16 +298,29 @@ export default function App() {
       ...newCat,
       id: `cat-${Math.random().toString(36).substring(2, 9)}`,
     };
+
+    // Optimistic state and local cache updates
+    const updatedCategories = [...categories, category];
+    setCategories(updatedCategories);
+    localStorage.setItem('stock_manager_categories', JSON.stringify(updatedCategories));
+
     try {
       await setDoc(doc(db, 'categories', category.id), category);
       addToast('success', 'เพิ่มหมวดหมู่ใหม่สำเร็จ', `เพิ่มกลุ่มสินค้า "${category.name}" แล้ว`);
     } catch (error: any) {
       console.error(error);
-      addToast('warning', 'เกิดข้อผิดพลาด', `ไม่สามารถเพิ่มหมวดหมู่ได้: ${error.message}`);
+      addToast('info', 'กำลังทำงานแบบออฟไลน์/บันทึกลงเครื่อง', `บันทึกกลุ่มสินค้า "${category.name}" ไว้ในเครื่องของคุณแล้ว: ${error.message}`);
     }
   };
 
   const handleEditCategory = async (id: string, updatedFields: Partial<Category>) => {
+    // Optimistic state and local cache updates
+    const updatedCategories = categories.map((cat) =>
+      cat.id === id ? { ...cat, ...updatedFields } : cat
+    );
+    setCategories(updatedCategories);
+    localStorage.setItem('stock_manager_categories', JSON.stringify(updatedCategories));
+
     try {
       const categoryRef = doc(db, 'categories', id);
       const cleanFields: Record<string, any> = {};
@@ -296,7 +333,7 @@ export default function App() {
       addToast('success', 'แก้ไขหมวดหมู่สำเร็จ', 'บันทึกความเปลี่ยนแปลงเรียบร้อย');
     } catch (error: any) {
       console.error(error);
-      addToast('warning', 'เกิดข้อผิดพลาด', `ไม่สามารถแก้ไขหมวดหมู่ได้: ${error.message}`);
+      addToast('info', 'อัปเดตแบบออฟไลน์สำเร็จ', 'บันทึกการแก้ไขกลุ่มสินค้าไว้ในเครื่องของคุณแล้ว');
     }
   };
 
@@ -313,12 +350,17 @@ export default function App() {
 
     const catToDelete = categories.find((c) => c.id === id);
     if (catToDelete && confirm(`ต้องการลบกลุ่มสินค้า "${catToDelete.name}" หรือไม่?`)) {
+      // Optimistic state and local cache updates
+      const updatedCategories = categories.filter((cat) => cat.id !== id);
+      setCategories(updatedCategories);
+      localStorage.setItem('stock_manager_categories', JSON.stringify(updatedCategories));
+
       try {
         await deleteDoc(doc(db, 'categories', id));
         addToast('info', 'ลบกลุ่มสินค้าสำเร็จ', `นำกลุ่มสินค้า "${catToDelete.name}" ออกจากระบบ`);
       } catch (error: any) {
         console.error(error);
-        addToast('warning', 'เกิดข้อผิดพลาด', `ไม่สามารถลบหมวดหมู่ได้: ${error.message}`);
+        addToast('info', 'ลบกลุ่มสินค้าในเครื่องสำเร็จ', `นำกลุ่มสินค้า "${catToDelete.name}" ออกจากระบบของเครื่องแล้ว`);
       }
     }
   };
@@ -384,8 +426,7 @@ export default function App() {
         );
       case 'logs':
         return <ActivityLogView activities={activities} onClearLogs={handleClearLogs} />;
-      case 'simulation':
-        return <SimulationView products={products} categories={categories} onAdjustStock={handleAdjustStock} />;
+
       default:
         return null;
     }
@@ -474,21 +515,7 @@ export default function App() {
             บันทึกประวัติ (Logs)
           </button>
 
-          {/* Real-time storefront simulator trigger */}
-          <div className="border-t border-slate-800/60 my-5 pt-5 px-1">
-            <span className="text-[10px] font-bold text-slate-500 uppercase font-sans tracking-wider px-3">จำลองสถานการณ์</span>
-            <button
-              onClick={() => setCurrentTab('simulation')}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold font-sans transition-all mt-2 cursor-pointer ${
-                currentTab === 'simulation'
-                  ? 'bg-amber-500 text-slate-900 shadow-md shadow-amber-500/10'
-                  : 'hover:bg-slate-800/60 hover:text-amber-400 text-amber-500/90'
-              }`}
-            >
-              <Play className="h-4.5 w-4.5 flex-shrink-0 fill-current" />
-              จำลองเปิดบิลขาย/เติมสต็อก
-            </button>
-          </div>
+
         </nav>
 
         {/* Footer */}
@@ -577,15 +604,7 @@ export default function App() {
               <History className="h-4.5 w-4.5" />
               บันทึกประวัติ (Logs)
             </button>
-            <button
-              onClick={() => { setCurrentTab('simulation'); setIsMobileMenuOpen(false); }}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold ${
-                currentTab === 'simulation' ? 'bg-amber-500 text-slate-900' : 'hover:bg-slate-800 text-amber-500'
-              }`}
-            >
-              <Play className="h-4.5 w-4.5 fill-current" />
-              จำลองเปิดบิลขาย/เติมสต็อก
-            </button>
+
           </nav>
         </div>
       )}
@@ -597,7 +616,7 @@ export default function App() {
         <header className="hidden md:flex items-center justify-between pb-6 mb-4 border-b border-slate-200/60">
           <div>
             <h1 className="text-xl font-bold font-sans text-slate-800">ระบบจัดการคลังสินค้าอัจฉริยะ</h1>
-            <p className="text-xs text-slate-400 font-sans mt-0.5">คลังข้อมูลและจำลองสต็อกสินค้าแบบเรียลไทม์</p>
+            <p className="text-xs text-slate-400 font-sans mt-0.5">คลังข้อมูลระบบบริหารสต็อกสินค้าแบบเรียลไทม์</p>
           </div>
 
           <div className="flex items-center gap-3 relative">
