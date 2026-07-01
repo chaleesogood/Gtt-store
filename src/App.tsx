@@ -1,13 +1,15 @@
 import React, { useState, useEffect } from 'react';
-import { Product, Category, StockActivity } from './types';
+import { Product, Category, StockActivity, Project, Bom } from './types';
 import { INITIAL_PRODUCTS, INITIAL_CATEGORIES, INITIAL_ACTIVITIES } from './initialData';
 import Toast, { ToastMessage } from './components/Toast';
 import DashboardView from './components/DashboardView';
 import ProductListView from './components/ProductListView';
 import CategoryView from './components/CategoryView';
 import ActivityLogView from './components/ActivityLogView';
+import ProjectBomView from './components/ProjectBomView';
+import Logo from './components/Logo';
 
-import { LayoutDashboard, Package, Layers, History, Play, Bell, Menu, X, CheckCircle, AlertTriangle } from 'lucide-react';
+import { LayoutDashboard, Package, Layers, History, Play, Bell, Menu, X, CheckCircle, AlertTriangle, FolderKanban } from 'lucide-react';
 import { collection, doc, setDoc, updateDoc, deleteDoc, onSnapshot, query, orderBy, writeBatch, getDocs } from 'firebase/firestore';
 import { db } from './firebase';
 
@@ -15,6 +17,8 @@ export default function App() {
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [activities, setActivities] = useState<StockActivity[]>([]);
+  const [boms, setBoms] = useState<Bom[]>([]);
+  const [projects, setProjects] = useState<Project[]>([]);
 
   // UI state
   const [currentTab, setCurrentTab] = useState('dashboard');
@@ -105,6 +109,44 @@ export default function App() {
       addToast('warning', 'เกิดข้อผิดพลาดในการเชื่อมต่อประวัติการทำงาน (Firestore)', `สลับไปใช้ประวัติสำรองในเบราว์เซอร์: ${error.message}`);
       const saved = localStorage.getItem('stock_manager_activities');
       setActivities(saved ? JSON.parse(saved) : INITIAL_ACTIVITIES);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  // Sync boms from Firestore
+  useEffect(() => {
+    const q = query(collection(db, 'boms'));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const list: Bom[] = [];
+      snapshot.forEach((document) => {
+        list.push({ id: document.id, ...document.data() } as Bom);
+      });
+      list.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+      setBoms(list);
+      localStorage.setItem('stock_manager_boms', JSON.stringify(list));
+    }, (error) => {
+      console.error("Firestore boms sync error:", error);
+      const saved = localStorage.getItem('stock_manager_boms');
+      setBoms(saved ? JSON.parse(saved) : []);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  // Sync projects from Firestore
+  useEffect(() => {
+    const q = query(collection(db, 'projects'));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const list: Project[] = [];
+      snapshot.forEach((document) => {
+        list.push({ id: document.id, ...document.data() } as Project);
+      });
+      list.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+      setProjects(list);
+      localStorage.setItem('stock_manager_projects_list', JSON.stringify(list));
+    }, (error) => {
+      console.error("Firestore projects sync error:", error);
+      const saved = localStorage.getItem('stock_manager_projects_list');
+      setProjects(saved ? JSON.parse(saved) : []);
     });
     return () => unsubscribe();
   }, []);
@@ -426,6 +468,15 @@ export default function App() {
         );
       case 'logs':
         return <ActivityLogView activities={activities} onClearLogs={handleClearLogs} />;
+      case 'projects_bom':
+        return (
+          <ProjectBomView
+            products={products}
+            boms={boms}
+            projects={projects}
+            addToast={addToast}
+          />
+        );
 
       default:
         return null;
@@ -449,11 +500,9 @@ export default function App() {
       <aside className="hidden md:flex flex-col w-64 bg-slate-900 text-slate-300 border-r border-slate-800 flex-shrink-0 z-20">
         {/* Brand / Logo */}
         <div className="p-6 border-b border-slate-800/80 flex items-center gap-3">
-          <div className="h-10 w-10 bg-gradient-to-tr from-indigo-500 to-violet-600 rounded-xl flex items-center justify-center text-white shadow-md font-bold text-xl">
-            S
-          </div>
+          <Logo className="h-10 w-10 flex-shrink-0" size={40} />
           <div>
-            <h1 className="font-extrabold text-sm text-white tracking-wide font-sans">STOCKS</h1>
+            <h1 className="font-extrabold text-sm text-white tracking-wide font-sans">GTT EE STORE</h1>
             <p className="text-[10px] text-slate-500 font-sans tracking-widest uppercase">Inventory Real-time</p>
           </div>
         </div>
@@ -504,6 +553,18 @@ export default function App() {
           </button>
 
           <button
+            onClick={() => setCurrentTab('projects_bom')}
+            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold font-sans transition-all cursor-pointer ${
+              currentTab === 'projects_bom'
+                ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/10'
+                : 'hover:bg-slate-800/60 hover:text-slate-100 text-slate-400'
+            }`}
+          >
+            <FolderKanban className="h-4.5 w-4.5 flex-shrink-0" />
+            ระบบโปรเจ็ค & BOM
+          </button>
+
+          <button
             onClick={() => setCurrentTab('logs')}
             className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold font-sans transition-all cursor-pointer ${
               currentTab === 'logs'
@@ -520,17 +581,15 @@ export default function App() {
 
         {/* Footer */}
         <div className="p-4 border-t border-slate-800/80 text-[10px] text-slate-500 text-center font-mono font-medium">
-          STOCKS PLATFORM v1.4.0
+          GTT EE STORE PLATFORM v1.4.0
         </div>
       </aside>
 
       {/* -------------------- MOBILE HEADER & MENU -------------------- */}
       <header className="md:hidden bg-slate-900 text-slate-200 py-4 px-5 flex items-center justify-between border-b border-slate-800 sticky top-0 z-30">
         <div className="flex items-center gap-2">
-          <div className="h-8 w-8 bg-indigo-600 rounded-lg flex items-center justify-center text-white font-bold text-lg">
-            S
-          </div>
-          <span className="font-bold text-sm tracking-wide text-white">Stock Manager</span>
+          <Logo className="h-8 w-8 flex-shrink-0" size={32} />
+          <span className="font-bold text-sm tracking-wide text-white">GTT EE STORE</span>
         </div>
 
         <div className="flex items-center gap-3">
@@ -594,6 +653,15 @@ export default function App() {
             >
               <Layers className="h-4.5 w-4.5" />
               กลุ่มสินค้า (Categories)
+            </button>
+            <button
+              onClick={() => { setCurrentTab('projects_bom'); setIsMobileMenuOpen(false); }}
+              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold ${
+                currentTab === 'projects_bom' ? 'bg-indigo-600 text-white' : 'hover:bg-slate-800'
+              }`}
+            >
+              <FolderKanban className="h-4.5 w-4.5" />
+              ระบบโปรเจ็ค & BOM
             </button>
             <button
               onClick={() => { setCurrentTab('logs'); setIsMobileMenuOpen(false); }}
