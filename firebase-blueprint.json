@@ -1,0 +1,138 @@
+{
+  "entities": {
+    "Product": {
+      "title": "Product",
+      "description": "Stock item product definition",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "sku": { "type": "string" },
+        "category": { "type": "string" },
+        "price": { "type": "number" },
+        "costPrice": { "type": "number" },
+        "quantity": { "type": "number" },
+        "minAlert": { "type": "number" },
+        "image": { "type": "string" },
+        "description": { "type": "string" },
+        "brand": { "type": "string" },
+        "unit": { "type": "string" },
+        "supplier": { "type": "string" },
+        "sourceUrl": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "name", "sku", "category", "price", "costPrice", "quantity", "minAlert", "createdAt", "updatedAt"]
+    },
+    "Category": {
+      "title": "Category",
+      "description": "Product classification category",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "color": { "type": "string" }
+      },
+      "required": ["id", "name", "description", "color"]
+    },
+    "StockActivity": {
+      "title": "StockActivity",
+      "description": "Log of stock ins, outs and adjustments",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "productId": { "type": "string" },
+        "productName": { "type": "string" },
+        "type": { "type": "string", "enum": ["in", "out", "adjust"] },
+        "quantityChange": { "type": "number" },
+        "oldQuantity": { "type": "number" },
+        "newQuantity": { "type": "number" },
+        "reason": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "productId", "productName", "type", "quantityChange", "oldQuantity", "newQuantity", "reason", "timestamp"]
+    },
+    "Bom": {
+      "title": "Bom",
+      "description": "Bill of Materials",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "items": { "type": "array" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "name", "items", "createdAt", "updatedAt"]
+    },
+    "Project": {
+      "title": "Project",
+      "description": "A project requesting a BOM set",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "jobNo": { "type": "string" },
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "in_progress", "completed", "cancelled"] },
+        "bomId": { "type": "string" },
+        "requiredQuantity": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" },
+        "completedAt": { "type": "string", "format": "date-time" },
+        "stockDeducted": { "type": "boolean" }
+      },
+      "required": ["id", "name", "description", "status", "bomId", "requiredQuantity", "createdAt", "updatedAt"]
+    },
+    "ProductOrder": {
+      "title": "ProductOrder",
+      "description": "A purchase order containing requester, item, tracking status, and receive info",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "requesterName": { "type": "string" },
+        "orderTitle": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "ordered", "shipping", "received", "cancelled"] },
+        "quantity": { "type": "number" },
+        "unit": { "type": "string" },
+        "pricePerUnit": { "type": "number" },
+        "totalPrice": { "type": "number" },
+        "productId": { "type": "string" },
+        "productName": { "type": "string" },
+        "remark": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "receivedAt": { "type": "string", "format": "date-time" },
+        "receivedQty": { "type": "number" }
+      },
+      "required": ["id", "requesterName", "orderTitle", "status", "quantity", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/products/{productId}": {
+      "schema": "Product",
+      "description": "Stores stock products"
+    },
+    "/categories/{categoryId}": {
+      "schema": "Category",
+      "description": "Stores classification categories"
+    },
+    "/activities/{activityId}": {
+      "schema": "StockActivity",
+      "description": "Stores log of stock changes"
+    },
+    "/boms/{bomId}": {
+      "schema": "Bom",
+      "description": "Stores Bill of Materials"
+    },
+    "/projects/{projectId}": {
+      "schema": "Project",
+      "description": "Stores active projects"
+    },
+    "/orders/{orderId}": {
+      "schema": "ProductOrder",
+      "description": "Stores purchase and item tracking orders"
+    }
+  }
+}

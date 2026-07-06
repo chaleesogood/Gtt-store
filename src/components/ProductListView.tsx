@@ -1,6 +1,8 @@
 import React, { useState, useRef } from 'react';
 import { Product, Category } from '../types';
-import { Search, Filter, Plus, Edit3, Trash2, PlusCircle, MinusCircle, Upload, Eye, EyeOff, X, Image as ImageIcon, ExternalLink, Layers, List, ChevronDown, ChevronUp, ChevronRight } from 'lucide-react';
+import { Search, Filter, Plus, Edit3, Trash2, PlusCircle, MinusCircle, Upload, Eye, EyeOff, X, Image as ImageIcon, ExternalLink, Layers, List, ChevronDown, ChevronUp, ChevronRight, Package } from 'lucide-react';
+import CategoryView from './CategoryView';
+import { INITIAL_CATEGORIES } from '../initialData';
 
 interface ProductListViewProps {
   products: Product[];
@@ -11,6 +13,9 @@ interface ProductListViewProps {
   onAdjustStock: (id: string, change: number, reason: string) => void;
   statusFilter: string;
   onSetStatusFilter: (filter: string) => void;
+  onAddCategory: (category: Omit<Category, 'id'>) => void;
+  onEditCategory: (id: string, updated: Partial<Category>) => void;
+  onDeleteCategory: (id: string) => void;
 }
 
 // Curated stock photos for quick selection
@@ -34,8 +39,12 @@ export default function ProductListView({
   onAdjustStock,
   statusFilter,
   onSetStatusFilter,
+  onAddCategory,
+  onEditCategory,
+  onDeleteCategory,
 }: ProductListViewProps) {
   // Filters & Search
+  const [activeSubTab, setActiveSubTab] = useState<'products' | 'categories'>('products');
   const [searchTerm, setSearchTerm] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [viewMode, setViewMode] = useState<'grouped' | 'list'>('grouped');
@@ -63,6 +72,8 @@ export default function ProductListView({
   const [formImage, setFormImage] = useState('');
   const [formDescription, setFormDescription] = useState('');
   const [formSourceUrl, setFormSourceUrl] = useState('');
+  const [formWarehouse, setFormWarehouse] = useState('คลังสินค้าหลัก A');
+  const [formExpiryDate, setFormExpiryDate] = useState('');
 
   // Image Upload States
   const [imagePreview, setImagePreview] = useState('');
@@ -93,13 +104,33 @@ export default function ProductListView({
     return matchesSearch && matchesCategory && matchesStatus;
   });
 
+  // Build a merged list of categories to handle any missing category definitions in the DB gracefully
+  const mergedCategories = React.useMemo(() => {
+    const list = [...categories];
+    // Find all unique product category IDs
+    const productCategoryIds = Array.from(new Set(products.map((p) => p.category).filter(Boolean)));
+    
+    productCategoryIds.forEach((catId) => {
+      if (!list.some((c) => c.id === catId)) {
+        const defaultCat = INITIAL_CATEGORIES.find((c) => c.id === catId);
+        list.push({
+          id: catId,
+          name: defaultCat?.name || (catId === 'cat-9uc8blz' ? 'กลุ่มจัดซื้อเฉพาะกิจ' : `กลุ่มสินค้า ${catId}`),
+          description: defaultCat?.description || 'หมวดหมู่สินค้าอ้างอิงจากข้อมูลผลิตภัณฑ์ในระบบ',
+          color: defaultCat?.color || 'bg-slate-100 text-slate-800 border-slate-200',
+        });
+      }
+    });
+    return list;
+  }, [categories, products]);
+
   const getCategoryName = (catId: string) => {
-    const cat = categories.find((c) => c.id === catId);
+    const cat = mergedCategories.find((c) => c.id === catId);
     return cat ? cat.name : 'ทั่วไป';
   };
 
   const getCategoryBadgeClass = (catId: string) => {
-    const cat = categories.find((c) => c.id === catId);
+    const cat = mergedCategories.find((c) => c.id === catId);
     return cat ? cat.color : 'bg-slate-100 text-slate-800 border-slate-200';
   };
 
@@ -108,7 +139,7 @@ export default function ProductListView({
     setEditingProduct(null);
     setFormName('');
     setFormSku(`SKU-${Math.floor(100000 + Math.random() * 900000)}`);
-    setFormCategory(categories[0]?.id || '');
+    setFormCategory(mergedCategories[0]?.id || '');
     setFormPrice(0);
     setFormCostPrice(0);
     setFormQuantity(0);
@@ -118,6 +149,8 @@ export default function ProductListView({
     setFormSourceUrl('');
     setImagePreview('');
     setShowGallery(false);
+    setFormWarehouse('คลังสินค้าหลัก A');
+    setFormExpiryDate('');
     setIsModalOpen(true);
   };
 
@@ -136,6 +169,8 @@ export default function ProductListView({
     setFormDescription(product.description);
     setFormSourceUrl(product.sourceUrl || '');
     setShowGallery(false);
+    setFormWarehouse(product.warehouse || 'คลังสินค้าหลัก A');
+    setFormExpiryDate(product.expiryDate || '');
     setIsModalOpen(true);
   };
 
@@ -155,6 +190,8 @@ export default function ProductListView({
       image: formImage || imagePreview,
       description: formDescription,
       sourceUrl: formSourceUrl,
+      warehouse: formWarehouse,
+      expiryDate: formExpiryDate,
     };
 
     if (editingProduct) {
@@ -249,7 +286,7 @@ export default function ProductListView({
   };
 
   // Group products by category
-  const productsByCategory = categories.reduce((acc, cat) => {
+  const productsByCategory = mergedCategories.reduce((acc, cat) => {
     const catProducts = filteredProducts.filter((p) => p.category === cat.id);
     if (catProducts.length > 0) {
       acc.push({
@@ -262,7 +299,7 @@ export default function ProductListView({
 
   // Any products that don't match any category
   const uncategorizedProducts = filteredProducts.filter(
-    (p) => !categories.some((cat) => cat.id === p.category)
+    (p) => !mergedCategories.some((cat) => cat.id === p.category)
   );
   if (uncategorizedProducts.length > 0) {
     productsByCategory.push({
@@ -278,8 +315,46 @@ export default function ProductListView({
 
   return (
     <div className="space-y-6">
-      {/* Search & Action Bar */}
-      <div className="flex flex-col md:flex-row gap-4 items-stretch justify-between bg-white p-5 rounded-2xl border border-slate-100 shadow-sm">
+      {/* Sub-tab switcher */}
+      <div className="flex border-b border-slate-200">
+        <button
+          type="button"
+          onClick={() => setActiveSubTab('products')}
+          className={`pb-3 px-6 text-xs font-black tracking-wide font-sans transition-all border-b-2 relative -mb-[2px] cursor-pointer flex items-center gap-2 ${
+            activeSubTab === 'products'
+              ? 'border-indigo-600 text-indigo-600 font-extrabold'
+              : 'border-transparent text-slate-400 hover:text-slate-600 font-medium'
+          }`}
+        >
+          <Package className="h-4.5 w-4.5" />
+          รายการสินค้าพัสดุ (Products)
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveSubTab('categories')}
+          className={`pb-3 px-6 text-xs font-black tracking-wide font-sans transition-all border-b-2 relative -mb-[2px] cursor-pointer flex items-center gap-2 ${
+            activeSubTab === 'categories'
+              ? 'border-indigo-600 text-indigo-600 font-extrabold'
+              : 'border-transparent text-slate-400 hover:text-slate-600 font-medium'
+          }`}
+        >
+          <Layers className="h-4.5 w-4.5" />
+          กลุ่มสินค้า & หมวดหมู่ (Categories)
+        </button>
+      </div>
+
+      {activeSubTab === 'categories' ? (
+        <CategoryView
+          categories={categories}
+          products={products}
+          onAddCategory={onAddCategory}
+          onEditCategory={onEditCategory}
+          onDeleteCategory={onDeleteCategory}
+        />
+      ) : (
+        <>
+          {/* Search & Action Bar */}
+          <div className="flex flex-col md:flex-row gap-4 items-stretch justify-between bg-white p-5 rounded-2xl border border-slate-100 shadow-sm">
         
         {/* Left: Searches and category selection */}
         <div className="flex flex-col sm:flex-row gap-3 flex-grow max-w-3xl">
@@ -315,8 +390,8 @@ export default function ProductListView({
               onChange={(e) => setCategoryFilter(e.target.value)}
               id="select-category-filter"
             >
-              <option value="all">ทุกหมวดหมู่ ({categories.length})</option>
-              {categories.map((c) => (
+              <option value="all">ทุกหมวดหมู่ ({mergedCategories.length})</option>
+              {mergedCategories.map((c) => (
                 <option key={c.id} value={c.id}>
                   {c.name.split(' (')[0]}
                 </option>
@@ -352,7 +427,7 @@ export default function ProductListView({
           >
             ทั้งหมด ({products.length})
           </button>
-          {categories.map((cat) => {
+          {mergedCategories.map((cat) => {
             const count = products.filter((p) => p.category === cat.id).length;
             const isSelected = categoryFilter === cat.id;
             return (
@@ -571,6 +646,16 @@ export default function ProductListView({
                                     <div className="min-w-0">
                                       <h4 className="font-bold text-slate-800 font-sans leading-tight line-clamp-2" title={p.name}>{p.name}</h4>
                                       <p className="text-xs text-slate-400 font-sans mt-1 line-clamp-1 italic">{p.description || 'ไม่มีรายละเอียดเพิ่มเติม'}</p>
+                                      <div className="mt-1 flex flex-wrap gap-1.5 items-center">
+                                        <span className="inline-block px-1.5 py-0.5 text-[9px] font-semibold text-indigo-700 bg-indigo-50 rounded border border-indigo-100">
+                                          📍 {p.warehouse || 'คลังสินค้าหลัก A'}
+                                        </span>
+                                        {p.expiryDate && (
+                                          <span className="inline-block px-1.5 py-0.5 text-[9px] font-semibold text-rose-700 bg-rose-50 rounded border border-rose-100">
+                                            📅 หมดอายุ: {new Date(p.expiryDate).toLocaleDateString('th-TH', { year: 'numeric', month: 'short', day: 'numeric' })}
+                                          </span>
+                                        )}
+                                      </div>
                                       {p.sourceUrl && (
                                         <div className="mt-1.5 flex items-center">
                                           <a
@@ -880,7 +965,7 @@ export default function ProductListView({
                     value={formCategory}
                     onChange={(e) => setFormCategory(e.target.value)}
                   >
-                    {categories.map((c) => (
+                    {mergedCategories.map((c) => (
                       <option key={c.id} value={c.id}>
                         {c.name}
                       </option>
@@ -931,6 +1016,34 @@ export default function ProductListView({
                     className="w-full px-3.5 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 font-sans transition-all"
                     value={formQuantity}
                     onChange={(e) => setFormQuantity(Math.max(0, Number(e.target.value)))}
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Warehouse Selection */}
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-slate-600 font-sans">สถานที่จัดเก็บ / คลังสินค้า <span className="text-rose-500">*</span></label>
+                  <select
+                    required
+                    className="w-full px-3.5 py-2 border border-slate-200 bg-white rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 font-sans transition-all cursor-pointer"
+                    value={formWarehouse}
+                    onChange={(e) => setFormWarehouse(e.target.value)}
+                  >
+                    <option value="คลังสินค้าหลัก A">คลังสินค้าหลัก A</option>
+                    <option value="คลังสำรอง B">คลังสำรอง B</option>
+                    <option value="คลังสินค้าหน้าร้าน C">คลังสินค้าหน้าร้าน C</option>
+                  </select>
+                </div>
+
+                {/* Expiry Date */}
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-slate-600 font-sans">วันหมดอายุของสินค้า (Expiry Date)</label>
+                  <input
+                    type="date"
+                    className="w-full px-3.5 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 font-sans transition-all"
+                    value={formExpiryDate}
+                    onChange={(e) => setFormExpiryDate(e.target.value)}
                   />
                 </div>
               </div>
@@ -1173,6 +1286,8 @@ export default function ProductListView({
             </form>
           </div>
         </div>
+      )}
+        </>
       )}
     </div>
   );

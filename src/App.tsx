@@ -4,12 +4,12 @@ import { INITIAL_PRODUCTS, INITIAL_CATEGORIES, INITIAL_ACTIVITIES } from './init
 import Toast, { ToastMessage } from './components/Toast';
 import DashboardView from './components/DashboardView';
 import ProductListView from './components/ProductListView';
-import CategoryView from './components/CategoryView';
 import ActivityLogView from './components/ActivityLogView';
-import ProjectBomView from './components/ProjectBomView';
+import BomProcurementView from './components/BomProcurementView';
+import ReportsView from './components/ReportsView';
 import Logo from './components/Logo';
 
-import { LayoutDashboard, Package, Layers, History, Play, Bell, Menu, X, CheckCircle, AlertTriangle, FolderKanban } from 'lucide-react';
+import { LayoutDashboard, Package, Layers, History, Play, Bell, Menu, X, CheckCircle, AlertTriangle, FolderKanban, ShoppingCart, BarChart3 } from 'lucide-react';
 import { collection, doc, setDoc, updateDoc, deleteDoc, onSnapshot, query, orderBy, writeBatch, getDocs } from 'firebase/firestore';
 import { db } from './firebase';
 
@@ -19,6 +19,10 @@ export default function App() {
   const [activities, setActivities] = useState<StockActivity[]>([]);
   const [boms, setBoms] = useState<Bom[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
+
+  // Auth / Admin state
+  const [adminEmail, setAdminEmail] = useState<string | null>(() => localStorage.getItem('admin_email'));
+  const [loginEmailInput, setLoginEmailInput] = useState('');
 
   // UI state
   const [currentTab, setCurrentTab] = useState('dashboard');
@@ -84,6 +88,43 @@ export default function App() {
     });
     return () => unsubscribe();
   }, []);
+
+  // Sync and heal database: Ensure any category referenced by any product is defined in the categories collection
+  useEffect(() => {
+    if (products.length === 0 || categories.length === 0) return;
+    
+    const categoryIds = new Set(categories.map(c => c.id));
+    const productCategoryIds = Array.from(new Set(products.map(p => p.category).filter(Boolean))) as string[];
+    
+    productCategoryIds.forEach(async (catId) => {
+      if (!categoryIds.has(catId)) {
+        // Look up if we have a seed template for this category
+        const defaultCat = INITIAL_CATEGORIES.find(c => c.id === catId);
+        
+        let fallbackName = `กลุ่มสินค้า ${catId}`;
+        if (catId === 'cat-9uc8blz') {
+          fallbackName = 'กลุ่มจัดซื้อเฉพาะกิจ (BOM/Procurement)';
+        }
+        
+        const fallbackDesc = 'หมวดหมู่สินค้าที่สร้างขึ้นโดยอัตโนมัติเพื่อให้สอดคล้องกับคลังสินค้า';
+        const fallbackColor = 'bg-slate-100 text-slate-800 border-slate-200';
+        
+        const newCat: Category = {
+          id: catId,
+          name: defaultCat?.name || fallbackName,
+          description: defaultCat?.description || fallbackDesc,
+          color: defaultCat?.color || fallbackColor,
+        };
+        
+        try {
+          await setDoc(doc(db, 'categories', catId), newCat);
+          console.log(`Auto-created missing category document in Firestore: ${catId}`);
+        } catch (err) {
+          console.error("Auto-create category error:", err);
+        }
+      }
+    });
+  }, [products, categories]);
 
   // Sync activities from Firestore (seed if empty)
   useEffect(() => {
@@ -454,13 +495,6 @@ export default function App() {
             onAdjustStock={handleAdjustStock}
             statusFilter={statusFilter}
             onSetStatusFilter={setStatusFilter}
-          />
-        );
-      case 'categories':
-        return (
-          <CategoryView
-            categories={categories}
-            products={products}
             onAddCategory={handleAddCategory}
             onEditCategory={handleEditCategory}
             onDeleteCategory={handleDeleteCategory}
@@ -470,11 +504,21 @@ export default function App() {
         return <ActivityLogView activities={activities} onClearLogs={handleClearLogs} />;
       case 'projects_bom':
         return (
-          <ProjectBomView
+          <BomProcurementView
             products={products}
             boms={boms}
             projects={projects}
+            categories={categories}
             addToast={addToast}
+            onAdjustStock={handleAdjustStock}
+          />
+        );
+      case 'reports':
+        return (
+          <ReportsView
+            products={products}
+            categories={categories}
+            activities={activities}
           />
         );
 
@@ -492,6 +536,69 @@ export default function App() {
     setCurrentTab('products');
     setIsNotificationsOpen(false);
   };
+
+  if (!adminEmail) {
+    return (
+      <div className="min-h-screen bg-slate-900 flex flex-col justify-center items-center p-4 antialiased selection:bg-indigo-500/30">
+        <div className="max-w-md w-full bg-slate-800 border border-slate-700/80 rounded-3xl shadow-2xl p-8 space-y-6 animate-in fade-in zoom-in-95 duration-300">
+          <div className="text-center space-y-3">
+            <div className="flex justify-center">
+              <Logo className="h-16 w-16" size={64} />
+            </div>
+            <div className="space-y-1">
+              <h1 className="text-xl font-black text-white font-sans tracking-wide">GTT EE STORE</h1>
+              <p className="text-xs text-indigo-400 font-mono tracking-widest uppercase">ระบบบริหารจัดการสต็อกและคลังสินค้า</p>
+            </div>
+          </div>
+
+          <div className="border-t border-slate-700/60 my-2"></div>
+
+          <form 
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (loginEmailInput.trim()) {
+                const email = loginEmailInput.trim().toLowerCase();
+                localStorage.setItem('admin_email', email);
+                setAdminEmail(email);
+                addToast('success', 'เข้าสู่ระบบสำเร็จ', `ยินดีต้อนรับคุณ ${email} เข้าสู่ระบบควบคุมคลังสินค้า`);
+              }
+            }} 
+            className="space-y-5 text-left"
+          >
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-slate-300 font-sans block">ระบุอีเมลผู้ดูแลคลัง / Admin Email Login</label>
+              <input
+                type="email"
+                required
+                value={loginEmailInput}
+                onChange={(e) => setLoginEmailInput(e.target.value)}
+                placeholder="name@example.com"
+                className="w-full px-4 py-3 bg-slate-900 border border-slate-700 rounded-xl text-sm font-sans text-slate-100 placeholder-slate-500 focus:outline-hidden focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500 transition-all font-mono"
+              />
+            </div>
+
+            <button
+              type="submit"
+              className="w-full py-3 px-4 bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white font-bold rounded-xl text-xs font-sans uppercase tracking-wider transition-all shadow-md shadow-indigo-600/20 hover:shadow-indigo-600/30 cursor-pointer"
+            >
+              เข้าสู่ระบบระบบผู้ดูแล (Sign In)
+            </button>
+          </form>
+
+          <p className="text-[10px] text-slate-500 text-center font-mono leading-relaxed">
+            ระบบจัดเก็บคลังและคำนวณโครงสร้าง BOM แบบเรียลไทม์<br />
+            GTT EE STORE PLATFORM
+          </p>
+        </div>
+        {/* Toast notifications container during login */}
+        <div className="fixed bottom-5 right-5 space-y-3 z-50 flex flex-col items-end">
+          {toasts.map((toast) => (
+            <Toast key={toast.id} toast={toast} onClose={removeToast} />
+          ))}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-slate-50/50 flex flex-col md:flex-row antialiased text-slate-800">
@@ -522,6 +629,18 @@ export default function App() {
           </button>
 
           <button
+            onClick={() => setCurrentTab('reports')}
+            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold font-sans transition-all cursor-pointer ${
+              currentTab === 'reports'
+                ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/10'
+                : 'hover:bg-slate-800/60 hover:text-slate-100 text-slate-400'
+            }`}
+          >
+            <BarChart3 className="h-4.5 w-4.5 flex-shrink-0" />
+            รายงาน & วิเคราะห์
+          </button>
+
+          <button
             onClick={() => { setCurrentTab('products'); setStatusFilter('all'); }}
             className={`w-full flex items-center justify-between px-4 py-3 rounded-xl text-xs font-bold font-sans transition-all cursor-pointer ${
               currentTab === 'products'
@@ -531,25 +650,13 @@ export default function App() {
           >
             <div className="flex items-center gap-3">
               <Package className="h-4.5 w-4.5 flex-shrink-0" />
-              จัดการสินค้า (Products)
+              จัดการสินค้า & กลุ่ม
             </div>
             {outOfStockCount > 0 && (
               <span className="bg-rose-600 text-[10px] font-mono text-white font-bold h-5 px-1.5 rounded-full flex items-center justify-center animate-pulse">
                 {outOfStockCount} หมด
               </span>
             )}
-          </button>
-
-          <button
-            onClick={() => setCurrentTab('categories')}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold font-sans transition-all cursor-pointer ${
-              currentTab === 'categories'
-                ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/10'
-                : 'hover:bg-slate-800/60 hover:text-slate-100 text-slate-400'
-            }`}
-          >
-            <Layers className="h-4.5 w-4.5 flex-shrink-0" />
-            กลุ่มสินค้า (Categories)
           </button>
 
           <button
@@ -561,7 +668,7 @@ export default function App() {
             }`}
           >
             <FolderKanban className="h-4.5 w-4.5 flex-shrink-0" />
-            ระบบโปรเจ็ค & BOM
+            BOM & ระบบจัดซื้อ
           </button>
 
           <button
@@ -630,6 +737,15 @@ export default function App() {
               ภาพรวมระบบ (Dashboard)
             </button>
             <button
+              onClick={() => { setCurrentTab('reports'); setIsMobileMenuOpen(false); }}
+              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold ${
+                currentTab === 'reports' ? 'bg-indigo-600 text-white' : 'hover:bg-slate-800'
+              }`}
+            >
+              <BarChart3 className="h-4.5 w-4.5" />
+              รายงาน & วิเคราะห์ (Reports)
+            </button>
+            <button
               onClick={() => { setCurrentTab('products'); setStatusFilter('all'); setIsMobileMenuOpen(false); }}
               className={`w-full flex items-center justify-between px-4 py-3 rounded-xl text-xs font-bold ${
                 currentTab === 'products' ? 'bg-indigo-600 text-white' : 'hover:bg-slate-800'
@@ -637,7 +753,7 @@ export default function App() {
             >
               <div className="flex items-center gap-3">
                 <Package className="h-4.5 w-4.5" />
-                จัดการสินค้า (Products)
+                จัดการสินค้า & กลุ่ม
               </div>
               {outOfStockCount > 0 && (
                 <span className="bg-rose-600 text-[9px] font-mono font-bold text-white h-4.5 px-1.5 rounded-full flex items-center justify-center">
@@ -646,22 +762,13 @@ export default function App() {
               )}
             </button>
             <button
-              onClick={() => { setCurrentTab('categories'); setIsMobileMenuOpen(false); }}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold ${
-                currentTab === 'categories' ? 'bg-indigo-600 text-white' : 'hover:bg-slate-800'
-              }`}
-            >
-              <Layers className="h-4.5 w-4.5" />
-              กลุ่มสินค้า (Categories)
-            </button>
-            <button
               onClick={() => { setCurrentTab('projects_bom'); setIsMobileMenuOpen(false); }}
               className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold ${
                 currentTab === 'projects_bom' ? 'bg-indigo-600 text-white' : 'hover:bg-slate-800'
               }`}
             >
               <FolderKanban className="h-4.5 w-4.5" />
-              ระบบโปรเจ็ค & BOM
+              BOM & ระบบจัดซื้อ
             </button>
             <button
               onClick={() => { setCurrentTab('logs'); setIsMobileMenuOpen(false); }}
@@ -671,6 +778,19 @@ export default function App() {
             >
               <History className="h-4.5 w-4.5" />
               บันทึกประวัติ (Logs)
+            </button>
+
+            <button
+              onClick={() => {
+                if (confirm('คุณแน่ใจหรือไม่ว่าต้องการออกจากระบบคลังสินค้า?')) {
+                  localStorage.removeItem('admin_email');
+                  setAdminEmail(null);
+                  setIsMobileMenuOpen(false);
+                }
+              }}
+              className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold text-rose-400 hover:bg-rose-950/20 hover:text-rose-300 transition-all border border-dashed border-rose-900/40 mt-4 cursor-pointer"
+            >
+              <span>ออกจากระบบ (Sign Out)</span>
             </button>
 
           </nav>
@@ -750,14 +870,23 @@ export default function App() {
             )}
 
             {/* Profile Avatar / Mock account */}
-            <div className="flex items-center gap-2 border-l border-slate-200 pl-3">
+            <div className="flex items-center gap-2.5 border-l border-slate-200 pl-3">
               <div className="text-right hidden xl:block">
                 <span className="text-xs font-bold text-slate-800 font-sans block">ผู้ดูแลระบบคลัง</span>
-                <span className="text-[10px] text-slate-400 font-mono">chaleesogood@gmail.com</span>
+                <span className="text-[10px] text-slate-400 font-mono">{adminEmail}</span>
               </div>
-              <div className="h-10 w-10 rounded-xl bg-slate-200 border border-slate-300 overflow-hidden text-slate-600 flex items-center justify-center font-bold text-sm font-sans uppercase">
-                AD
-              </div>
+              <button
+                onClick={() => {
+                  if (confirm('คุณแน่ใจหรือไม่ว่าต้องการออกจากระบบคลังสินค้า?')) {
+                    localStorage.removeItem('admin_email');
+                    setAdminEmail(null);
+                  }
+                }}
+                className="h-9 px-3 rounded-xl bg-slate-100 hover:bg-rose-50 hover:text-rose-600 border border-slate-200 hover:border-rose-100 text-slate-600 flex items-center justify-center font-bold text-[10px] font-sans tracking-wider transition-all cursor-pointer uppercase shrink-0"
+                title="ออกจากระบบ (Sign Out)"
+              >
+                Sign Out
+              </button>
             </div>
 
           </div>
